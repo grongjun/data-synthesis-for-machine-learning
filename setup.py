@@ -12,7 +12,6 @@ INSTALL_REQUIRES = [
     'mako ==1.0.12',
     'pandas >= 0.24.2',
     'scikit-learn >= 0.20.2',
-    'pytest >= 4.6.2',
     'python-dateutil >= 2.7.3',
     'setuptools >= 39.1.0'
 ]
