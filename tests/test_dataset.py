@@ -52,7 +52,7 @@ def test_encode_empty_column():
     x_tf = ds.encode(data=x)
     # Name is not categorical, because it has unique values
     assert x_tf.shape == (2, 3)
-    assert array_equal(x_tf.columns, ['ID', 'Sex_Female', 'Sex_Male'])
+    assert array_equal(x_tf.columns.tolist(), ['ID', 'Sex_Female', 'Sex_Male'])
 
 
 def test_svm_task():

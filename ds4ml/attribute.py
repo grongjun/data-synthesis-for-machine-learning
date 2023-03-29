@@ -70,12 +70,25 @@ class Attribute(AttributePattern, Series):
             blood type, gender.
         """
         categorical = kwargs.pop('categorical', False)
+        # The `categorical` option can be set to true when the attribute is
+        # string-typed and all values are not unique, and its value can be
+        # overridden by user.
+        if categorical or (
+                isinstance(args[0], Series)
+                and args[0].dtype == 'object'
+                and utils.is_discrete_values(args[0])):
+            kwargs.update({'dtype': 'category'})
+            categorical = True
         super().__init__(*args, **kwargs)
         self.set_pattern(categorical=categorical)
 
     def _calculate_pattern(self):
         from pandas.api.types import infer_dtype
-        self._type = infer_dtype(self, skipna=True)
+        self.categorical = self.dtype == 'category'
+        if self.categorical:
+            self._type = infer_dtype(self.cat.categories, skipna=True)
+        else:
+            self._type = infer_dtype(self, skipna=True)
         if self._type == 'integer':
             pass
         elif self._type == 'floating' or self._type == 'mixed-integer-float':
@@ -85,22 +98,27 @@ class Attribute(AttributePattern, Series):
             if all(map(utils.is_datetime, self._values)):
                 self._type = 'datetime'
 
+        if self.type == 'string' and not self.categorical:
+            # check string categories (when attribute is set from pattern)
+            if utils.is_discrete_values(self):
+                self._update_categories_inplace([])
+                self.categorical = True
+
         # fill the missing values with the most frequent value
         if self.hasnans:
             self.fillna(self.mode()[0], inplace=True)
 
         # for datetime attribute is converted to seconds since Unix epoch time
         if self.type == 'datetime':
-            self.update(self.map(self._to_seconds))
+            if self.categorical:
+                # re-order datetime categories in below function
+                self._update_categories_inplace([])
+            else:
+                self.update(self.map(self._to_seconds))
 
         if self.type == 'float':
             self._decimals = self.decimals()
 
-        # The `categorical` option can be set to true when the attribute is
-        # string-typed and all values are not unique, and its value can be
-        # overrode by user.
-        self.categorical = self.categorical or (
-            self.type == 'string' and not self.is_unique)
         self._set_domain()
         self._set_distribution()
 
@@ -163,6 +181,22 @@ class Attribute(AttributePattern, Series):
         """ Return step for numerical or datetime attribute. """
         return (self.max_ - self.min_) / self._bin_size
 
+    def _update_categories_inplace(self, new_categories):
+        if self.categorical:
+            if self._type in ['string', 'datetime']:
+                new_categories = set(new_categories + self.cat.categories.to_list())
+                if self.type == 'datetime':
+                    new_categories = sorted(new_categories, key=self._to_seconds)
+                else:
+                    new_categories = sorted(new_categories)
+            cat = self.cat.set_categories(new_categories)
+            super().__init__(cat, dtype='category')
+        else:
+            new_categories = sorted(set(new_categories + self.dropna().unique().tolist()))
+            series = self.astype('category')
+            cat = series.cat.set_categories(new_categories)
+            super().__init__(cat, dtype='category')
+
     @domain.setter
     def domain(self, domain: list):
         """
@@ -179,9 +213,12 @@ class Attribute(AttributePattern, Series):
             should be a list of two elements [min, max]; For categorical
             attributes, it should a list of potential values of this attribute.
         """
+        if self.categorical:
+            self._update_categories_inplace(domain)
+
         # if a attribute is numerical and categorical and domain's length is
         # bigger than 2, take it as categorical. e.g. zip code.
-        if self.type == 'datetime':
+        if self.type == 'datetime' and not self.categorical:
             domain = list(map(self._to_seconds, domain))
         if (self.is_numerical and self.categorical and len(domain) > 2) or (
                 self.categorical):
@@ -201,7 +238,7 @@ class Attribute(AttributePattern, Series):
         Compute domain (min, max, distribution bins) from input data
         """
         if self.categorical:
-            self.bins = self.unique()
+            self.bins = self.cat.categories
 
         if self._type == 'string':
             items = self.astype(str).map(len)
@@ -215,9 +252,9 @@ class Attribute(AttributePattern, Series):
                 self.max_ = float(self.max())
                 self.bins = np.array([self.min_, self.max_])
         else:
-            self.min_ = float(self.min())
-            self.max_ = float(self.max())
             if not self.categorical:
+                self.min_ = float(self.min())
+                self.max_ = float(self.max())
                 self.bins = np.array([self.min_, self.max_])
 
     def _set_distribution(self):
@@ -226,8 +263,8 @@ class Attribute(AttributePattern, Series):
             for value in set(self.bins) - set(counts.index):
                 counts[value] = 0
             counts.sort_index(inplace=True)
-            if self.type == 'datetime':
-                counts.index = list(map(self._date_formatter, counts.index))
+            # if self.type == 'datetime':
+            #     counts.index = list(map(self._date_formatter, counts.index))
             self._counts = counts.values
             self.prs = utils.normalize_distribution(counts)
             self.bins = np.array(counts.index)
@@ -257,8 +294,10 @@ class Attribute(AttributePattern, Series):
         if bins is None:
             return self._counts
         if self.categorical:
-            if self.type == 'datetime':
-                bins = list(map(self._to_seconds, bins))
+            self._update_categories_inplace(bins)
+
+            # if self.type == 'datetime':
+            #     bins = list(map(self._to_seconds, bins))
             counts = self.value_counts()
             for value in set(bins) - set(counts.index):
                 counts[value] = 0
@@ -279,8 +318,9 @@ class Attribute(AttributePattern, Series):
         Encode values into bin indexes for Bayesian Network.
         """
         if self.categorical:
-            mapping = {value: idx for idx, value in enumerate(self.bins)}
-            indexes = self.map(lambda x: mapping[x], na_action='ignore')
+            # mapping = {value: idx for idx, value in enumerate(self.bins)}
+            # indexes = self.map(lambda x: mapping[x], na_action='ignore')
+            indexes = Series(self.cat.codes)
         else:
             indexes = self.map(lambda x: bisect_right(self.bins, x) - 1,
                                na_action='ignore')

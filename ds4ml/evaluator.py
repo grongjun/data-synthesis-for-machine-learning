@@ -85,7 +85,7 @@ class BiFrame:
                     cols.remove(col)
                     continue
                 if self.fst[col].categorical:
-                    domain = np.unique(np.concatenate((fst_domain, snd_domain)))
+                    domain = np.unique(np.concatenate((fst_domain, snd_domain))).tolist()
                 else:
                     domain = [min(fst_domain[0], snd_domain[0]),
                               max(fst_domain[1], snd_domain[1])]
@@ -140,7 +140,7 @@ class BiFrame:
         if column not in self.columns:
             raise ValueError(f"{column} is not in current dataset.")
         if self.fst[column].categorical:
-            bins = self.fst[column].domain
+            bins = self.fst[column].domain.tolist()
             fst_counts = self.fst[column].counts(bins=bins)
             snd_counts = self.snd[column].counts(bins=bins)
         else:

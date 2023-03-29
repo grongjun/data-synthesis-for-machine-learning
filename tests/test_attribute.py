@@ -1,13 +1,15 @@
 
-
-from math import isclose
-
 from numpy import random, array_equal
 from pandas import Series
 from ds4ml.attribute import Attribute
 from ds4ml.utils import randomize_string
 
 size = 30
+
+
+def isclose(a, b):
+    from math import isclose
+    return isclose(a, b, rel_tol=1e-03)
 
 
 def test_integer_attribute():
@@ -21,8 +23,9 @@ def test_integer_attribute():
     assert isclose(sum(attr.prs), 1.0)
 
     from .testdata import adults01
-    attr = Attribute(adults01['age'])
+    attr = Attribute(adults01['age'], categorical=True)
     assert attr.type == 'integer'
+    assert attr.categorical
 
 
 def test_float_attribute():

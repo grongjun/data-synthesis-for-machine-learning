@@ -435,6 +435,11 @@ def is_datetime(value: str):
         return False
 
 
+def is_discrete_values(values: Series) -> bool:
+    unique_values = values.unique()
+    return len(unique_values) < len(values) * 0.8
+
+
 def randomize_string(length):
     return ''.join(np.random.choice(list(ascii_lowercase), size=length))
 
