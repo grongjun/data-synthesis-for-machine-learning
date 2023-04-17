@@ -1,4 +1,4 @@
-mako>=1.0.12
+mako>=1.2.2
 matplotlib>=2.2.2
 numpy>=1.14.3
 pandas>=0.24.2

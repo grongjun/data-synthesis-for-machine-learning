@@ -9,11 +9,10 @@ pwd = os.path.abspath(os.path.dirname(__file__))
 INSTALL_REQUIRES = [
     'numpy >= 1.14.3',
     'matplotlib >= 2.2.2',
-    'mako ==1.0.12',
+    'mako >= 1.2.2',
     'pandas >= 0.24.2',
     'scikit-learn >= 0.20.2',
-    'python-dateutil >= 2.7.3',
-    'setuptools >= 39.1.0'
+    'python-dateutil >= 2.7.3'
 ]
 
 LONG_DESCRIPTION = """
