@@ -152,15 +152,12 @@ class DataSet(DataSetPattern, DataFrame):
                 prs = child_cond_prs[indexes]
                 indexes = list(eval(indexes))
 
-                filters = ''
+                df = frame
                 for parent, value in zip(parents, indexes):
-                    filters += f"(frame['{parent}']=={value})&"
-                filters = eval(filters[:-1])
-                size = frame[filters].shape[0]
-                if size:
-                    frame.loc[filters, child] = random.choice(len(prs),
-                                                              size=size,
-                                                              p=prs)
+                    df = df[df[parent] == value]
+                if df.size:
+                    frame.loc[df.index, child] = random.choice(
+                        len(prs), size=df.index.size, p=prs)
             child_prs = self[child].prs
             frame.loc[frame[child].isnull(), child] = random.choice(
                 len(child_prs), size=frame[child].isnull().sum(), p=child_prs)
