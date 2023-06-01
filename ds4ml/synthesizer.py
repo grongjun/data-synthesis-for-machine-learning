@@ -67,26 +67,6 @@ def calculate_degree(n_rows, n_cols, epsilon):
     return degree
 
 
-def candidate_pairs(paras):
-    """
-    Return attribute-parents pairs, and their mutual information.
-    """
-    from itertools import combinations
-    child, columns, n_parents, index, dataset = paras
-    aps = []
-    mis = []
-
-    if index + n_parents - 1 < len(columns):
-        for parents in combinations(columns[index + 1:], n_parents - 1):
-            parents = list(parents)
-            parents.append(columns[index])
-            aps.append((child, parents))
-            # TODO duplicate calculation of mutual information
-            mi = mutual_information(dataset[child], dataset[parents])
-            mis.append(mi)
-    return aps, mis
-
-
 def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
     """
     Algorithm 4, Page 20: Construct bayesian network by greedy algorithm.
@@ -128,6 +108,31 @@ def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
         left_cols = set(dataset.columns)
     left_cols.remove(root_col)
     network = []
+    mi_cache = {}  # cache for mutual information calculation results
+
+    def _candidate_pairs(paras):
+        """
+        Return attribute-parents pairs, and their mutual information.
+        """
+        from itertools import combinations
+        _child, _columns, _n_parents, _index, _dataset = paras
+        _aps = []
+        _mis = []
+
+        if _index + _n_parents - 1 < len(_columns):
+            for _parents in combinations(_columns[_index + 1:], _n_parents - 1):
+                _parents = list(_parents)
+                _parents.append(_columns[_index])
+                _aps.append((_child, _parents))
+                _key = f'{"#".join(_parents)}@{_child}'
+                if _key in mi_cache:
+                    _mi = mi_cache[_key]
+                else:
+                    _mi = mutual_information(_dataset[_child], _dataset[_parents])
+                    mi_cache[_key] = _mi
+                _mis.append(_mi)
+        return _aps, _mis
+
     while len(left_cols) > 0:
         # ap: attribute-parent (AP) pair is a tuple. It is a node in bayesian
         # network, e.g. ('education', ['relationship']), there may be multiple
