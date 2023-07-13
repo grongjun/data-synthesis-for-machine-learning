@@ -1,6 +1,6 @@
 
 from .testdata import adults01
-
+from ds4ml.utils import FREQ_NAME
 
 def test_calculate_degree():
     from ds4ml.synthesizer import calculate_degree
@@ -33,7 +33,7 @@ def test_noisy_distributions():
     epsilon = 0.05
     noisy = noisy_distributions(dataset, columns, epsilon)
     assert noisy.shape == (4, 3)
-    assert len(noisy[noisy['freq'] >= 0]) == 4
+    assert len(noisy[noisy[FREQ_NAME] >= 0]) == 4
 
 
 def test_noisy_distributions_for_one_column():
@@ -53,7 +53,7 @@ def test_noisy_distributions_for_one_column():
     epsilon = 0.05
     noisy = noisy_distributions(dataset, columns, epsilon)
     assert noisy.shape == (2, 2)
-    assert len(noisy[noisy['freq'] >= 0]) == 2
+    assert len(noisy[noisy[FREQ_NAME] >= 0]) == 2
 
     columns = ['age']
     epsilon = 0.05

@@ -8,7 +8,7 @@ from pandas import DataFrame, Series
 
 from ds4ml.attribute import Attribute
 from ds4ml.synthesizer import greedy_bayes, noisy_conditionals, noisy_distributions
-from ds4ml.utils import normalize_distribution
+from ds4ml.utils import FREQ_NAME, normalize_distribution
 
 
 class DataSetPattern:
@@ -136,17 +136,23 @@ class DataSet(DataSetPattern, DataFrame):
         conditional probability.
         """
         from numpy import random
-        root_col = network[0][1][0]
-        root_prs = cond_prs[root_col]
 
-        columns = [root_col]  # columns from bayesian network
+        columns = []  # columns from bayesian network
         for node, _ in network:
             columns.append(node)
 
         frame = DataFrame(columns=columns)  # encoded DataFrame
-        frame[root_col] = random.choice(len(root_prs), size=n, p=root_prs)
 
         for child, parents in network:
+            if len(parents) == 0 or (
+                    # for backward compatibility
+                    len(parents) == 1 and parents[0] not in cond_prs):
+                root = child if len(parents) == 0 else parents[0]
+                root_prs = cond_prs[root]
+                frame[root] = random.choice(len(root_prs), size=n, p=root_prs)
+                if len(parents) == 0:
+                    continue
+
             child_cond_prs = cond_prs[child]
             for indexes in child_cond_prs.keys():
                 prs = child_cond_prs[indexes]
@@ -192,7 +198,7 @@ class DataSet(DataSetPattern, DataFrame):
                   'algorithm inject noises to its probability distribution.')
             _cols = list(indexes)
             prs = noisy_distributions(indexes, _cols, epsilon)
-            probability = {_cols[0]: normalize_distribution(prs['freq']).tolist()}
+            probability = {_cols[0]: normalize_distribution(prs[FREQ_NAME]).tolist()}
             return None, probability
 
         # Bayesian network is defined as a set of AP (attribute-parent) pairs.

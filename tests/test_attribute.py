@@ -277,6 +277,12 @@ def test_encode_categorical_attributes():
     assert array_equal(attr.bins, columns)
     assert array_equal(attr.encode().columns, columns)
 
+    attr = Attribute(frame['education'].astype('category'))
+    columns = ['11th', '7th-8th', '9th', 'Assoc-acdm', 'Bachelors', 'Doctorate',
+               'HS-grad', 'Masters', 'Some-college']
+    assert array_equal(attr.bins, columns)
+    assert array_equal(attr.encode().columns, columns)
+
 
 def test_encode_datetime_attributes():
     from pandas import DataFrame

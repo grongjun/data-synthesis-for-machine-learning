@@ -60,7 +60,7 @@ class BiFrame:
         """
         # To compare two data sets, make sure that they have same columns. If
         # not, compare them on their common columns.
-        cols = set(first.columns) & set(second.columns)
+        cols = list(set(first.columns) & set(second.columns))
         if len(cols) != len(first.columns) or len(cols) != len(second.columns):
             warnings.warn("Evaluate on partial columns of the datasets",
                           stacklevel=2)

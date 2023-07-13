@@ -16,6 +16,7 @@ import hashlib
 from string import ascii_lowercase
 from pandas import Series, DataFrame
 
+FREQ_NAME = '@-freq#@'
 
 # ---------------------------------------------------------------
 # Utilities for Input/Output
@@ -368,16 +369,34 @@ def train_and_predict(x_train, y_train, x_test):
     return result
 
 
-def mutual_information(child: Series, parents: DataFrame):
+def is_integer_dataframe(data: DataFrame) -> bool:
+    from pandas.api.types import is_integer_dtype
+    for _type in data.dtypes:
+        if not is_integer_dtype(_type):
+            return False
+    return True
+
+
+def mutual_information(child: Series, parents: DataFrame | Series):
     """
     Mutual information of child (Series) and parents (DataFrame) distributions
     """
-    from sklearn.metrics import mutual_info_score
+    from sklearn.metrics import normalized_mutual_info_score
+    if isinstance(parents, Series):
+        return normalized_mutual_info_score(child, parents)
+
     if parents.shape[1] == 1:
         parents = parents.iloc[:, 0]
     else:
-        parents = parents.apply(lambda x: ' '.join(x.array), axis=1)
-    return mutual_info_score(child, parents)
+        if is_integer_dataframe(parents):
+            parents = parents.astype(str)
+            lengths = parents.applymap(len).max()
+            parents = parents.apply(
+                lambda row: int('1' + ''.join(
+                    [s.zfill(w) for s, w in zip(row, lengths)])), axis=1)
+        else:
+            parents = parents.apply(lambda x: ' '.join(x.array), axis=1)
+    return normalized_mutual_info_score(child, parents)
 
 
 def normalize_distribution(frequencies):
