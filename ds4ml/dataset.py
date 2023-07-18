@@ -137,11 +137,15 @@ class DataSet(DataSetPattern, DataFrame):
         """
         from numpy import random
 
-        columns = []  # columns from bayesian network
+        root_col = network[0][1][0]
+        root_prs = cond_prs[root_col]
+        columns = [root_col]  # columns from bayesian network
+
         for node, _ in network:
             columns.append(node)
 
         frame = DataFrame(columns=columns)  # encoded DataFrame
+        frame[root_col] = random.choice(len(root_prs), size=n, p=root_prs)
 
         for child, parents in network:
             if len(parents) == 0 or (

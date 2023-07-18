@@ -70,6 +70,91 @@ def calculate_degree(n_rows, n_cols, epsilon):
     return degree
 
 
+class _DisjointColumns:
+    """
+    DisjointColumns store the relationships between columns whose mutual
+    information is large (e.g. > 0.8), and connect columns together to show as
+    a Bayesian Network.
+    """
+    def __init__(self):
+        self.disjoints: list[set] = []
+
+    def _find(self, e: str):
+        for i, joints in enumerate(self.disjoints):
+            for x, y in joints:
+                if e == x or e == y:
+                    return i
+        return -1
+
+    def _add_node(self, i: int, x: str, y: str):
+        # add (x, y) or (y, x) to i-th joints; (only x exists in joints)
+        parents = [_x for _x, _y in self.disjoints[i] if x == _y]
+        if len(parents) == 0:
+            self.disjoints[i].add((y, x))
+        else:
+            self.disjoints[i].add((x, y))
+
+    def _union(self, i, j: int, x, y: str):
+        # union j-th joints to i-th joint through edge (x, y) or (y, x);
+        if len(self.disjoints[j]) > len(self.disjoints[i]):
+            i, j = j, i
+            x, y = y, x
+        # sort edges from y by depth (distance to y), and rotate all ancient nodes
+        # to child nodes;
+        stack = [y]
+        nodes = [(x, y)]
+        joints = list(self.disjoints[j].copy())
+        while len(stack) > 0:
+            node = stack.pop()
+            for x, y in joints:
+                if x == node:
+                    nodes.append((x, y))
+                    stack.append(y)
+                if y == node:
+                    nodes.append((y, x))
+                    stack.append(x)
+                joints.remove((x, y))
+        for x, y in nodes:
+            self.disjoints[i].add((x, y))
+        self.disjoints.pop(j)
+
+    # add edge (x, y) to disjoint columns
+    def add(self, x: str, y: str):
+        if len(self.disjoints) == 0:
+            self.disjoints.append({(x, y)})
+        x_idx = self._find(x)
+        y_idx = self._find(y)
+        if x_idx == y_idx:
+            if x_idx == -1:
+                return self.disjoints.append({(x, y)})
+            else:  # != -1, already exist, which constitute a cycle, ignore
+                return None
+        else:
+            if x_idx == -1:
+                return self._add_node(y_idx, y, x)
+            if y_idx == -1:
+                return self._add_node(x_idx, x, y)
+            # merge two disjoint columns and prevent node from having multiple parents
+            self._union(x_idx, y_idx, x, y)
+
+    # connect disjoint columns to Bayesian Network
+    def to_network(self):
+        network = []  # (child, [parent])
+        prev = None
+        for joints in sorted(self.disjoints, key=len, reverse=True):
+            stack = list(set({x for x, _ in joints}) - set({y for _, y in joints}))
+            if prev is not None:
+                network.append((stack[0], [prev]))
+            prev = stack[0]
+            while len(stack) > 0:
+                node = stack.pop()
+                for x, y in joints:
+                    if x == node:
+                        network.append((y, [x]))
+                        stack.append(y)
+        return network
+
+
 def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
     """
     Algorithm 4, Page 20: Construct bayesian network by greedy algorithm.
@@ -83,7 +168,7 @@ def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
     degree : int
         Degree of bayesian network. If null, calculate it automatically.
     retains : list
-        The columns to retain
+        The columns to retain set by end-user. The values of columns are retained.
     """
     dataset = dataset.astype(str, copy=False)
     n_rows, n_cols = dataset.shape
@@ -120,62 +205,64 @@ def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
                 mi_cache[p_key] = data
                 # print(p_key, data)
 
-    # filter outer columns whose mutual information < 0.2 (independent columns),
-    # which are not strong enough to be nodes in Bayesian Network.
-    ind_columns = []
-    for col in dataset.columns:
-        if all(pairwise_mi[k] < 0.2 for k in pairwise_mi if k[0] == col or k[1] == col):
-            network.append((col, []))
-            ind_columns.append(col)
-    print('ind_columns:', ind_columns)
-    print('\t', network)
-
     # filter outer columns whose mutual information > 0.8 (dependent columns),
     # they are nodes in Bayesian Network, and degree is 1 (highly correlated).
     dep_columns = []
+    _disjoints = _DisjointColumns()
     for col in dataset.columns:
         pairs = [k for k in pairwise_mi if k[0] == col and pairwise_mi[k] > 0.8]
         if len(pairs) > 0:
             if pairs[0][0] not in dep_columns:
                 dep_columns.append(pairs[0][0])
-                network.append((pairs[0][0], []))
             for k in pairs:
                 if k[1] not in dep_columns:
                     dep_columns.append(k[1])
-                    network.append((k[1], [k[0]]))
-    print('dep_columns:', dep_columns)
-    print('\t', network)
+                # connect isolated edges to connected graph, which can improve
+                # the calculation of noisy distribution
+                _disjoints.add(k[0], k[1])
+
+    network.extend(_disjoints.to_network())
+
+    # filter outer columns whose mutual information < 0.2 (independent columns),
+    # which are not strong enough to be nodes in Bayesian Network.
+    ind_columns = []
+    for col in dataset.columns:
+        if all(pairwise_mi[k] < 0.2 for k in pairwise_mi if k[0] == col or k[1] == col):
+            ind_columns.append(col)
 
     # mapping from column name to is_binary, because sensitivity is different
     # for binary or non-binary column
     binaries = [col for col in dataset if dataset[col].unique().size <= 2]
-    more_retains = False
     # columns: a set that contains all attributes whose parent sets has been set
     columns = dep_columns
     retains = [c for c in retains if c not in dep_columns and c not in ind_columns]
 
     # columns to be determined to add to Bayesian Network
     undetermined = list(set(dataset.columns) - set(dep_columns) - set(ind_columns))
-    if len(retains) == 0:
-        root_col = np.random.choice(undetermined)
-        # root_col = max(undetermined, key=)
-        # root_col = np.random.choice(dataset.columns)
-    elif len(retains) == 1:
-        root_col = retains[0]
+    if len(dep_columns) > 0:
+        root_col = np.random.choice(dep_columns)
     else:
-        root_col = np.random.choice(retains)
-        more_retains = True
+        if len(retains) == 0:
+            root_col = np.random.choice(undetermined)
+        elif len(retains) == 1:
+            root_col = retains[0]
+        else:
+            root_col = np.random.choice(retains)
+        columns.append(root_col)
 
-    columns.append(root_col)
-    network.append((root_col, []))
+    # connect independent columns to BN, improve these columns' noisy distribution
+    if len(ind_columns) > 0:
+        for col in ind_columns:
+            network.append((col, [root_col]))
+
+    more_retains = len(retains) > 0
     if more_retains:
         left_cols = set(retains)
     else:
         left_cols = set(undetermined)
-        # left_cols = set(dataset.columns)
-    # print(root_col in left_cols)
-    # if root_col in left_cols:
-    left_cols.remove(root_col)
+
+    if root_col in left_cols:
+        left_cols.remove(root_col)
 
     def _candidate_pairs(paras):
         """
@@ -203,11 +290,6 @@ def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
                 _mis.append(_mi)
         return _aps, _mis
 
-    # print('-x' * 10)
-    # print('left_cols:', left_cols)
-    # print('remained_columns:', remained_columns)
-    # print(more_retains)
-    # print(root_col)
     while len(left_cols) > 0:
         # ap: attribute-parent (AP) pair is a tuple. It is a node in bayesian
         # network, e.g. ('education', ['relationship']), there may be multiple
@@ -216,17 +298,10 @@ def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
         # mi: mutual information (MI) of two features
         mis = []
         n_parents = min(len(columns), degree)
-        # n_parents = min(len(columns), degree)
         # calculate the candidate set of attribute-parent pair
-        # print(len(columns) - n_parents + 1)
         tasks = [(child, columns, n_parents, index, dataset) for child, index in
                  product(left_cols, range(len(columns) - n_parents + 1))]
-        # TODO: should use thread pool for large data set?
-        # print('tasks:', len(tasks))
-        # print([(child, columns, n_parents, index) for child, index in
-        #          product(left_cols, range(len(columns) - n_parents + 1))])
         candidates = list(map(_candidate_pairs, tasks))
-        # print('candidates:', candidates)
         for ap, mi in candidates:
             aps += ap
             mis += mi
@@ -242,7 +317,6 @@ def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
         left_cols.remove(next_col)
         if len(left_cols) == 0 and more_retains:
             left_cols = set(undetermined) - set(retains)
-            # left_cols = set(dataset.columns) - set(retains)
             more_retains = False
     return network
 
@@ -294,34 +368,21 @@ def noisy_conditionals(network, dataset, epsilon):
     """
     cond_prs = {}  # conditional probability distributions
 
-    # test another method to get cond_prs
-    # _c, _p = network[0]
-    # _k = noisy_distributions(dataset, [_c] + _p, epsilon)
-    # _r = _p[0]
-    # _r_pr = _k[[_r, 'freq']].groupby(_r).sum()['freq']
-    # print('another cond_prs:')
-    # print(normalize_distribution(_r_pr).tolist())
-
-    # print('----- network ---')
-
     for child, parents in network:
-        print(child, parents)
         freq = noisy_distributions(dataset, parents + [child], epsilon)
         # independent columns or parent of dependent columns
-        # # for backward compatibility
-        if len(parents) == 0 or (len(parents) == 1 and parents[0] not in cond_prs):
+        if len(parents) == 0 or (
+                # for backward compatibility
+                len(parents) == 1 and parents[0] not in cond_prs):
             root = child if len(parents) == 0 else parents[0]
             root_prs = freq[[root, FREQ_NAME]].groupby(root).sum()[FREQ_NAME]
             cond_prs[root] = normalize_distribution(root_prs).tolist()
-            # print('no parents:', root)
             if len(parents) == 0:
                 continue
 
         freq = DataFrame(freq[parents + [child, FREQ_NAME]]
                          .groupby(parents + [child]).sum())
         cond_prs[child] = {}
-        # print('with parent:', child, parents)
-        # print(freq.head(2).to_string())
         if len(parents) == 1:
             for parent in freq.index.levels[0]:
                 prs = normalize_distribution(freq.loc[parent][FREQ_NAME]).tolist()
@@ -331,34 +392,4 @@ def noisy_conditionals(network, dataset, epsilon):
                 prs = normalize_distribution(freq.loc[parent][FREQ_NAME]).tolist()
                 cond_prs[child][str(list(parent))] = prs
 
-    # # distribution of one or more root node(s) in bayesian network
-    # root = network[0][1][0]
-    # # attributes [1, k]
-    # kattr = [root]
-    # for child, _ in network[:len(network[-1][1])]:
-    #     kattr.append(child)
-    #
-    # kfreq = noisy_distributions(dataset, kattr, epsilon)
-    # root_prs = kfreq[[root, 'freq']].groupby(root).sum()['freq']
-    # cond_prs[root] = normalize_distribution(root_prs).tolist()
-    #
-    # # distributions of other child node(s) in bayesian network
-    # net_idx = 0
-    # for child, parents in network:
-    #     cond_prs[child] = {}
-    #     if net_idx < len(network[-1][1]):
-    #         freq = kfreq.copy().loc[:, parents + [child, 'freq']]
-    #     else:
-    #         freq = noisy_distributions(dataset, parents + [child], epsilon)
-    #     freq = DataFrame(freq[parents + [child, 'freq']]
-    #                      .groupby(parents + [child]).sum())
-    #     if len(parents) == 1:
-    #         for parent in freq.index.levels[0]:
-    #             prs = normalize_distribution(freq.loc[parent]['freq']).tolist()
-    #             cond_prs[child][str([parent])] = prs
-    #     else:
-    #         for parent in product(*freq.index.levels[:-1]):
-    #             prs = normalize_distribution(freq.loc[parent]['freq']).tolist()
-    #             cond_prs[child][str(list(parent))] = prs
-    #     net_idx = net_idx + 1
     return cond_prs
