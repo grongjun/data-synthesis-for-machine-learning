@@ -239,21 +239,6 @@ def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
 
     # columns to be determined to add to Bayesian Network
     undetermined = list(set(dataset.columns) - set(dep_columns) - set(ind_columns))
-    if len(dep_columns) > 0:
-        root_col = np.random.choice(dep_columns)
-    else:
-        if len(retains) == 0:
-            root_col = np.random.choice(undetermined)
-        elif len(retains) == 1:
-            root_col = retains[0]
-        else:
-            root_col = np.random.choice(retains)
-        columns.append(root_col)
-
-    # connect independent columns to BN, improve these columns' noisy distribution
-    if len(ind_columns) > 0:
-        for col in ind_columns:
-            network.append((col, [root_col]))
 
     more_retains = len(retains) > 0
     if more_retains:
@@ -261,8 +246,28 @@ def greedy_bayes(dataset: DataFrame, epsilon, degree=None, retains=None):
     else:
         left_cols = set(undetermined)
 
-    if root_col in left_cols:
-        left_cols.remove(root_col)
+    # get next column as parent_col in BN, in the following order: dep_columns,
+    # left_cols (retains or undetermined columns)
+    root_col = None
+    if len(left_cols) > 0:
+        if len(dep_columns) > 0:
+            root_col = np.random.choice(dep_columns)
+        else:
+            if len(retains) > 0:
+                root_col = np.random.choice(retains)
+            else:
+                root_col = np.random.choice(left_cols)
+            columns.append(root_col)
+            left_cols.remove(root_col)
+
+    # connect independent columns to BN, improve these columns' noisy distribution
+    if len(ind_columns) > 0:
+        if root_col is None:
+            root_col = np.random.choice(ind_columns)
+            ind_columns.remove(root_col)
+
+        for col in ind_columns:
+            network.append((col, [root_col]))
 
     def _candidate_pairs(paras):
         """
